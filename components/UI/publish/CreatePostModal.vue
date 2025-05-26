@@ -15,10 +15,44 @@
       
       <div class="space-y-6">
         <!-- Add Tags -->
-        <div class="flex justify-end">
-          <UButton color="gray" variant="outline" icon="i-heroicons-tag">
-            Add Tags
-          </UButton>
+        <div class="space-y-3">
+          <div class="flex items-center space-x-2">
+            <UInput
+              v-model="newTag"
+              placeholder="Add a tag..."
+              @keyup.enter="addTag"
+              class="flex-grow"
+            >
+              <template #trailing>
+                <UButton
+                  color="gray"
+                  variant="ghost"
+                  icon="i-heroicons-plus"
+                  @click="addTag"
+                  :disabled="!newTag.trim()"
+                />
+              </template>
+            </UInput>
+          </div>
+          
+          <!-- Tag List -->
+          <div v-if="tags.length > 0" class="flex flex-wrap gap-2">
+            <div
+              v-for="(tag, index) in tags"
+              :key="index"
+              class="inline-flex items-center gap-1 px-3 py-1 bg-gray-900 rounded-full text-sm"
+            >
+              <span>#{{ tag }}</span>
+              <UButton
+                color="gray"
+                variant="ghost"
+                icon="i-heroicons-x-mark"
+                size="xs"
+                class="hover:text-red-500"
+                @click="removeTag(index)"
+              />
+            </div>
+          </div>
         </div>
         
         <!-- Platform Selection -->
@@ -203,7 +237,7 @@
             @click="editMode ? updatePost() : schedulePost()"
             :disabled="!postContent.trim() && files.length === 0"
           >
-            {{ editMode ? 'Update Post' : 'Schedule Post' }}
+            {{ editMode ? (editPost?.status === 'draft' || !editPost?.status ? 'Update Draft' : 'Update Post') : 'Schedule Post' }}
           </UButton>
         </div>
       </template>
@@ -233,6 +267,10 @@ const props = defineProps({
   editPost: {
     type: Object,
     default: null
+  },
+  existingPosts: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -248,6 +286,10 @@ const fileInput = ref(null)
 const selectedDate = ref('')
 const selectedTime24h = ref('')
 const selectedTime = ref('')
+
+// Add these new refs for tags
+const newTag = ref('')
+const tags = ref([])
 
 // Initialize with props or default values
 onMounted(() => {
@@ -284,6 +326,8 @@ const closeModal = () => {
 const resetForm = () => {
   postContent.value = ''
   files.value = []
+  tags.value = []
+  newTag.value = ''
 }
 
 const triggerFileInput = () => {
@@ -378,12 +422,69 @@ const convertTo12h = (time24h) => {
   }
 }
 
+const addTag = () => {
+  const tag = newTag.value.trim().toLowerCase()
+  if (tag && !tags.value.includes(tag)) {
+    tags.value.push(tag)
+    newTag.value = ''
+  }
+}
+
+const removeTag = (index) => {
+  tags.value.splice(index, 1)
+}
+
 const schedulePost = () => {
+  if (!postContent.value.trim() && files.value.length === 0) return
+  
+  // Get today's date if none selected
+  if (!selectedDate.value) {
+    selectedDate.value = getTodayDate()
+  }
+  
+  // Default to next available time if none selected
+  if (!selectedTime.value) {
+    const now = new Date()
+    now.setHours(now.getHours() + 1)
+    selectedTime.value = `${now.getHours() % 12 || 12}:00 ${now.getHours() >= 12 ? 'PM' : 'AM'}`
+  }
+
+  // Check if there's already a post at this time slot
+  const isTimeSlotTaken = props.existingPosts?.some(post => 
+    post.date === selectedDate.value && 
+    post.time === selectedTime.value &&
+    post.status === 'scheduled'
+  )
+
+  // If time slot is taken, find next available slot
+  if (isTimeSlotTaken) {
+    const currentTime = new Date(`${selectedDate.value} ${convertTo24h(selectedTime.value)}`)
+    let nextSlot = new Date(currentTime.getTime() + 30 * 60000) // Add 30 minutes
+
+    // Keep checking until we find an available slot
+    while (props.existingPosts?.some(post => {
+      const postTime = new Date(`${post.date} ${convertTo24h(post.time)}`)
+      return postTime.getTime() === nextSlot.getTime() && post.status === 'scheduled'
+    })) {
+      nextSlot = new Date(nextSlot.getTime() + 30 * 60000)
+    }
+
+    // Update the selected date and time
+    selectedDate.value = nextSlot.toISOString().split('T')[0]
+    selectedTime.value = convertTo12h(nextSlot.getHours().toString().padStart(2, '0') + ':' + nextSlot.getMinutes().toString().padStart(2, '0'))
+  }
+  
   const postData = {
+    id: `post-${Date.now()}`,
     content: postContent.value,
     files: files.value,
+    tags: tags.value,
     date: selectedDate.value,
-    time: selectedTime.value
+    time: selectedTime.value,
+    createdAt: new Date(),
+    status: 'scheduled',
+    username: 'huntergon077',
+    profileImage: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face'
   }
   
   emit('postScheduled', postData)
@@ -394,10 +495,16 @@ const saveDraft = () => {
   if (!postContent.value.trim() && files.value.length === 0) return
   
   const draftData = {
+    id: props.editMode && props.editPost?.id ? props.editPost.id : `draft-${Date.now()}`,
     content: postContent.value,
     files: files.value,
-    date: selectedDate.value,
-    time: selectedTime.value
+    tags: tags.value,
+    date: selectedDate.value || getTodayDate(),
+    time: selectedTime.value || '12:00 PM',
+    createdAt: new Date(),
+    status: 'draft',
+    username: 'huntergon077',
+    profileImage: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face'
   }
   
   emit('draftSaved', draftData)
@@ -405,29 +512,49 @@ const saveDraft = () => {
 }
 
 const updatePost = () => {
-  const postData = {
-    id: props.editPost.id,
-    content: postContent.value,
-    files: files.value,
-    date: selectedDate.value,
-    time: selectedTime.value
+  if (props.editPost && (props.editPost.status === 'draft' || !props.editPost.status)) {
+    const draftData = {
+      content: postContent.value,
+      files: files.value,
+      tags: tags.value,
+      date: selectedDate.value,
+      time: selectedTime.value,
+      id: props.editPost.id
+    }
+    
+    emit('draftSaved', draftData)
+  } else {
+    const postData = {
+      id: props.editPost.id,
+      content: postContent.value,
+      files: files.value,
+      tags: tags.value,
+      date: selectedDate.value,
+      time: selectedTime.value
+    }
+    
+    emit('postUpdated', postData)
   }
   
-  emit('postUpdated', postData)
   closeModal()
 }
 
 // Watch for edit post changes
 watch(() => props.editPost, (newPost) => {
-  if (newPost && props.editMode) {
+  if (newPost) {
     postContent.value = newPost.content || ''
     files.value = newPost.files ? [...newPost.files] : []
-    // Always use the latest date and time from the post
+    tags.value = newPost.tags ? [...newPost.tags] : []
     selectedDate.value = newPost.date || getTodayDate()
     selectedTime.value = newPost.time || '12:00 PM'
     selectedTime24h.value = convertTo24h(selectedTime.value)
+    
+    // If it's a new post (duplicate), append (Copy) to the content
+    if (!props.editMode && newPost.status === 'draft') {
+      postContent.value += ' (Copy)'
+    }
   }
-}, { immediate: true, deep: true })  // Added deep: true to catch nested changes
+}, { immediate: true, deep: true })
 
 // Watch for modal open/close
 watch(() => props.modelValue, (isOpen) => {

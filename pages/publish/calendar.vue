@@ -1,5 +1,5 @@
 <template>
-  <UIPublishSentSection />
+  <UIPublishCalendarSection />
 </template>
 
 <script setup>
@@ -10,6 +10,6 @@ definePageMeta({
 
 // Page meta
 useHead({
-  title: 'Sent'
+  title: 'Calendar'
 })
 </script> 

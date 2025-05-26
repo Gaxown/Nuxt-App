@@ -5,9 +5,30 @@
       :post="post"
       :scheduled-time="time"
       :profile-image="post.profileImage || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face'"
+      :show-header-menu="true"
+      :show-footer-menu="true"
+      :header-menu-items="[
+        { label: 'Duplicate', action: 'duplicate', icon: 'i-heroicons-document-duplicate', class: 'bg-gray-900 text-white rounded-lg px-2' }
+      ]"
+      :footer-menu-items="[
+        { 
+          label: 'Move to Draft', 
+          action: 'move-to-draft', 
+          icon: 'i-heroicons-document-text', 
+          class: 'bg-gray-900 text-white rounded-lg px-2'
+        },
+        { 
+          label: 'Delete', 
+          action: 'delete', 
+          icon: 'i-heroicons-trash', 
+          class: 'bg-gray-900 text-white rounded-lg px-2'
+        }
+      ]"
       @publish-now="$emit('publishNow', post)"
       @edit="$emit('editPost', post)"
       @show-options="$emit('showPostOptions', post)"
+      @header-menu-action="handleHeaderMenuAction(post, $event)"
+      @footer-menu-action="handleFooterMenuAction(post, $event)"
     />
   </div>
   
@@ -16,7 +37,7 @@
     <div class="w-24">
       <div 
         v-if="!isEditingTime"
-        class="text-sm text-gray-700 font-medium cursor-pointer hover:text-blue-600 transition-colors px-2 py-1 rounded hover:bg-blue-50"
+        class="text-sm text-gray-700 font-medium cursor-pointer hover:text-green-600 transition-colors px-2 py-1 rounded hover:bg-green-50"
         @click="startEditTime"
       >
         {{ time }}
@@ -25,7 +46,7 @@
         v-else
         v-model="editedTime"
         type="time"
-        class="text-sm text-blue-700 font-semibold bg-blue-50 border-2 border-blue-500 rounded px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white"
+        class="text-sm text-green-700 font-semibold bg-green-50 border-2 border-green-500 rounded px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-green-600 focus:bg-white"
         @blur="saveTime"
         @keyup.enter="saveTime"
         @keyup.escape="cancelEdit"
@@ -38,24 +59,26 @@
       color="gray" 
       variant="outline" 
       icon="i-heroicons-plus"
-      class="flex-1 justify-start"
+      class="flex-1 justify-start bg-white hover:bg-gray-50"
       @click="$emit('createPost', { date, time, slotId })"
     >
       New Post
     </UButton>
     <div class="flex items-center space-x-2">
       <UButton 
-        color="blue" 
-        variant="soft" 
+        color="green" 
+        variant="solid" 
         icon="i-heroicons-pencil"
         size="sm"
+        class="bg-green-600 hover:bg-green-700 text-white"
         @click="startEditTime"
       />
       <UButton 
         color="red" 
-        variant="soft" 
+        variant="solid" 
         icon="i-heroicons-trash"
         size="sm"
+        class="bg-red-600 hover:bg-red-700 text-white"
         @click="$emit('remove')"
       />
     </div>
@@ -90,7 +113,10 @@ const emit = defineEmits([
   'updateTime', 
   'publishNow', 
   'editPost', 
-  'showPostOptions'
+  'showPostOptions',
+  'moveToDraft',
+  'deletePost',
+  'duplicatePost'
 ])
 
 // Reactive data
@@ -160,6 +186,20 @@ const convertFromHtml5Time = (time24h) => {
     return `${hours}:${minutes} ${ampm}`
   } catch (error) {
     return '12:00 PM'
+  }
+}
+
+const handleHeaderMenuAction = (post, action) => {
+  if (action === '') {
+    emit('duplicatePost', post)
+  }
+}
+
+const handleFooterMenuAction = (post, action) => {
+  if (action === 'move-to-draft') {
+    emit('moveToDraft', post)
+  } else if (action === 'delete') {
+    emit('deletePost', post)
   }
 }
 </script> 

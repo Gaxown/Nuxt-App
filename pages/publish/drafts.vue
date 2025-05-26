@@ -1,5 +1,5 @@
 <template>
-  <UIPublishDraftsSection @create-post="handleCreatePost" />
+  <UIPublishDraftsSection @create-post="handleCreatePost" @edit-post="handleEditPost" />
 </template>
 
 <script setup>
@@ -14,5 +14,15 @@ useHead({
 })
 
 // Inject methods from layout
-const handleCreatePost = inject('createPost')
+const createPost = inject('createPost')
+const editPost = inject('editPost')
+
+// Methods
+const handleCreatePost = (data) => {
+  createPost(data)
+}
+
+const handleEditPost = (post) => {
+  editPost(post)
+}
 </script> 

@@ -13,7 +13,7 @@ export const useLocalStorage = () => {
     try {
       localStorage.setItem(key, JSON.stringify(data))
     } catch (error) {
-      console.error('Error saving to localStorage:', error)
+      // Silent error handling
     }
   }
 
@@ -23,7 +23,6 @@ export const useLocalStorage = () => {
       const item = localStorage.getItem(key)
       return item ? JSON.parse(item) : defaultValue
     } catch (error) {
-      console.error('Error loading from localStorage:', error)
       return defaultValue
     }
   }
@@ -35,7 +34,8 @@ export const useLocalStorage = () => {
 
   // Load scheduled posts
   const loadScheduledPosts = () => {
-    return loadFromStorage(STORAGE_KEYS.SCHEDULE, getDefaultSchedule())
+    const data = loadFromStorage(STORAGE_KEYS.SCHEDULE, getDefaultSchedule())
+    return data
   }
 
   // Save drafts
@@ -166,3 +166,9 @@ export const useLocalStorage = () => {
     getDefaultSchedule
   }
 } 
+
+
+
+
+
+ 

@@ -4,46 +4,47 @@
       <div class="flex space-x-8">
         <NuxtLink 
           to="/publish" 
-          class="flex items-center space-x-2 hover:text-blue-600 transition-colors"
+          class="flex items-center space-x-2 hover:text-blue-600 transition-colors text-gray-900"
           :class="{ 'text-blue-600 font-medium': $route.path === '/publish' }"
         >
           <span>Queue</span>
-          <UBadge color="gray" variant="subtle">{{ queueCount }}</UBadge>
+          <UBadge color="gray" variant="subtle" class="text-gray-900 bg-gray-100">{{ queueCount }}</UBadge>
         </NuxtLink>
         
         <NuxtLink 
           to="/publish/drafts" 
-          class="flex items-center space-x-2 hover:text-blue-600 transition-colors"
-          :class="{ 'text-blue-600 font-medium': $route.path === '/publish/drafts', 'text-gray-600': $route.path !== '/publish/drafts' }"
+          class="flex items-center space-x-2 hover:text-blue-600 transition-colors text-gray-900"
+          :class="{ 'text-blue-600 font-medium': $route.path === '/publish/drafts' }"
         >
           <span>Drafts</span>
-          <UBadge color="gray" variant="subtle">{{ draftsCount }}</UBadge>
+          <UBadge color="gray" variant="subtle" class="text-gray-900 bg-gray-100">{{ draftsCount }}</UBadge>
         </NuxtLink>
         
-        <div class="flex items-center space-x-2 text-gray-600">
+        <div class="flex items-center space-x-2 text-gray-900">
           <span>Approvals</span>
-          <UIcon name="i-heroicons-bolt" class="w-4 h-4 text-purple-500" />
+          <UIcon name="i-heroicons-bolt" class="w-4 h-4 text-purple-600" />
         </div>
         
         <NuxtLink 
           to="/publish/sent" 
-          class="flex items-center space-x-2 hover:text-blue-600 transition-colors"
-          :class="{ 'text-blue-600 font-medium': $route.path === '/publish/sent', 'text-gray-600': $route.path !== '/publish/sent' }"
+          class="flex items-center space-x-2 hover:text-blue-600 transition-colors text-gray-900"
+          :class="{ 'text-blue-600 font-medium': $route.path === '/publish/sent' }"
         >
           <span>Sent</span>
-          <UBadge color="gray" variant="subtle">{{ sentCount }}</UBadge>
+          <UBadge color="gray" variant="subtle" class="text-gray-900 bg-gray-100">{{ sentCount }}</UBadge>
         </NuxtLink>
       </div>
       
       <div class="flex items-center space-x-4">
-        <UButton color="gray" variant="ghost" icon="i-heroicons-tag">
-          Tags
+        <UButton color="gray" variant="ghost" icon="i-heroicons-tag" class="text-gray-900">
+          <UIcon name="i-heroicons-tag" class="w-4 h-4 text-gray-900" />
+          <span>Tags</span>
         </UButton>
         <div class="flex items-center space-x-2">
-          <UIcon name="i-heroicons-map-pin" class="w-4 h-4" />
-          <span class="text-sm">Casablanca</span>
+          <UIcon name="i-heroicons-map-pin" class="w-4 h-4 text-gray-900" />
+          <span class="text-sm text-gray-900">Casablanca</span>
         </div>
-        <UButton color="gray" variant="ghost">
+        <UButton color="gray" variant="ghost" class="text-gray-900">
           More
         </UButton>
       </div>
@@ -65,6 +66,17 @@ defineProps({
   sentCount: {
     type: Number,
     default: 0
+  }
+})
+
+// Inject dependencies
+const refreshQueue = inject('refreshQueue')
+
+// Watch route changes to refresh data
+const route = useRoute()
+watch(() => route.path, (newPath) => {
+  if (newPath === '/publish' && refreshQueue) {
+    refreshQueue.value++
   }
 })
 </script> 

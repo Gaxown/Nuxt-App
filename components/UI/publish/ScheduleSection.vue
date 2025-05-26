@@ -16,10 +16,11 @@
           <div class="flex items-center justify-between mb-6">
             <h2 class="text-lg font-semibold text-gray-900">{{ day.title }}</h2>
             <UButton 
-              color="primary" 
+              color="green" 
               variant="solid" 
               icon="i-heroicons-plus" 
               size="md"
+              class="bg-green-600 hover:bg-green-700 text-white"
               @click="addTimeSlot(day.id)"
             >
               Add Time Slot
@@ -33,13 +34,16 @@
               :date="day.date" 
               :time="slot.time"
               :post="slot.post"
-              :slot-id="slot.id"
+              :slot-id="slot.id || ''"
               @create-post="handleCreatePost"
               @remove="removeTimeSlot(day.id, slot.id)"
               @update-time="updateTimeSlot(day.id, slot.id, $event)"
               @publish-now="handlePublishNow"
               @edit-post="handleEditPost"
               @show-post-options="handleShowPostOptions"
+              @move-to-draft="moveToDraft"
+              @delete-post="deletePost"
+              @duplicate-post="handleDuplicatePost"
             />
           </div>
         </div>
@@ -74,66 +78,87 @@
 // Use localStorage composable
 const { loadScheduledPosts, saveScheduledPosts, getDefaultSchedule } = useLocalStorage()
 
+// Inject dependencies
+const queueCount = inject('queueCount')
+const draftsCount = inject('draftsCount')
+const sentCount = inject('sentCount')
+const refreshQueue = inject('refreshQueue')
+const toast = useToast()
+
 // Emits
 const emit = defineEmits(['createPost', 'editPost'])
 
-// Reactive schedule data - load from localStorage
+// Reactive data
 const schedule = ref([])
-
-// Counter for unique IDs
+const allPosts = ref([])
 const slotIdCounter = ref(6)
-
-// Track originating slot for new posts
 const originatingSlot = ref(null)
-
-// Infinite scroll
 const isLoading = ref(false)
 const loadTriggerRef = ref(null)
 
-// Load data on mount
-onMounted(() => {
-  const savedSchedule = loadScheduledPosts()
-  
-  // Check if saved data has old dates (before today)
-  const today = new Date().toISOString().split('T')[0]
-  const hasOldDates = savedSchedule.some(day => day.date < today)
-  
-  // If data has old dates, reset to default
-  if (hasOldDates || savedSchedule.length === 0) {
-    schedule.value = getDefaultSchedule()
-    saveScheduledPosts(schedule.value)
-  } else {
-    schedule.value = savedSchedule
-  }
-  
-  // Initialize slotIdCounter based on existing slots
-  let maxId = 0
-  schedule.value.forEach(day => {
-    day.timeSlots.forEach(slot => {
-      if (slot.id > maxId) {
-        maxId = slot.id
-      }
+// Method to load all posts - define this first
+const loadAllPosts = async () => {
+  try {
+    const savedSchedule = loadScheduledPosts() || []
+    
+    // Check if saved data has old dates (before today)
+    const today = new Date().toISOString().split('T')[0]
+    const hasOldDates = savedSchedule.some(day => day.date < today)
+    
+    // If data has old dates, reset to default
+    if (hasOldDates || !Array.isArray(savedSchedule) || savedSchedule.length === 0) {
+      schedule.value = getDefaultSchedule()
+      saveScheduledPosts(schedule.value)
+    } else {
+      schedule.value = savedSchedule
+    }
+    
+    // Initialize slotIdCounter based on existing slots
+    let maxId = 0
+    schedule.value.forEach(day => {
+      day.timeSlots.forEach(slot => {
+        if (slot.id > maxId) {
+          maxId = slot.id
+        }
+      })
     })
-  })
-  slotIdCounter.value = maxId + 1
-  
-  // Count total scheduled posts for queue
-  let totalPosts = 0
-  schedule.value.forEach(day => {
-    day.timeSlots.forEach(slot => {
-      if (slot.post) totalPosts++
+    slotIdCounter.value = maxId + 1
+    
+    // Count total scheduled posts for queue
+    let totalPosts = 0
+    schedule.value.forEach(day => {
+      day.timeSlots.forEach(slot => {
+        if (slot.post) totalPosts++
+      })
     })
-  })
-  
-  // Update queue count via provided function
-  const queueCount = inject('queueCount')
-  if (queueCount) {
-    queueCount.value = totalPosts
+    
+    // Update queue count
+    if (queueCount) {
+      queueCount.value = totalPosts
+    }
+    
+    // Update allPosts array for calendar view
+    allPosts.value = []
+    schedule.value.forEach(day => {
+      day.timeSlots.forEach(slot => {
+        if (slot.post) {
+          allPosts.value.push({
+            ...slot.post,
+            date: day.date,
+            time: slot.time
+          })
+        }
+      })
+    })
+  } catch (error) {
+    console.error('Error loading posts:', error)
+    toast.add({
+      title: 'Error',
+      description: 'Failed to load posts. Please try again.',
+      color: 'red'
+    })
   }
-  
-  // Setup infinite scroll observer
-  setupInfiniteScroll()
-})
+}
 
 // Setup infinite scroll
 const setupInfiniteScroll = () => {
@@ -158,6 +183,26 @@ const setupInfiniteScroll = () => {
     observer.disconnect()
   })
 }
+
+// Initialize data and setup watchers after functions are defined
+onMounted(() => {
+  loadAllPosts()
+  setupInfiniteScroll()
+})
+
+// Watch for refresh triggers after functions are defined
+watch(refreshQueue, async () => {
+  if (refreshQueue.value) {
+    await loadAllPosts()
+  }
+}, { immediate: true })
+
+// Watch schedule changes
+watch(schedule, () => {
+  // Sort schedule by date before saving
+  schedule.value.sort((a, b) => new Date(a.date) - new Date(b.date))
+  saveScheduledPosts(schedule.value)
+}, { deep: true })
 
 // Load more days
 const loadMoreDays = async () => {
@@ -203,13 +248,6 @@ const loadMoreDays = async () => {
   isLoading.value = false
 }
 
-// Save to localStorage whenever schedule changes
-watch(schedule, () => {
-  // Sort schedule by date before saving
-  schedule.value.sort((a, b) => new Date(a.date) - new Date(b.date))
-  saveScheduledPosts(schedule.value)
-}, { deep: true })
-
 // Methods
 const handleCreatePost = (data) => {
   // Store originating slot info if slotId is provided
@@ -251,7 +289,7 @@ const removeTimeSlot = (dayId, slotId) => {
       // Check if slot has a post and update counter
       const slot = day.timeSlots[index]
       if (slot.post) {
-        const queueCount = inject('queueCount')
+        // Use already injected queueCount
         if (queueCount && queueCount.value > 0) {
           queueCount.value--
         }
@@ -273,30 +311,58 @@ const updateTimeSlot = (dayId, slotId, newTime) => {
 
 // Post management methods
 const handlePublishNow = (post) => {
-  // Move post to sent
-  const sentCount = inject('sentCount')
-  const queueCount = inject('queueCount')
-  
-  if (sentCount) sentCount.value++
-  if (queueCount && queueCount.value > 0) queueCount.value--
-  
-  // Remove from schedule
-  for (const day of schedule.value) {
-    for (const slot of day.timeSlots) {
-      if (slot.post && slot.post.id === post.id) {
-        slot.post = null
-        break
+  try {
+    // Use localStorage to save to sent posts
+    const { loadSentPosts, saveSentPosts } = useLocalStorage()
+    
+    // Load current sent posts
+    const currentSentPosts = loadSentPosts()
+    
+    // Create sent post object
+    const sentPost = {
+      ...post,
+      id: `sent-${Date.now()}`,
+      publishedAt: new Date(),
+      status: 'sent',
+      originalScheduledId: post.id
+    }
+    
+    // Add to sent posts
+    currentSentPosts.push(sentPost)
+    saveSentPosts(currentSentPosts)
+    
+    // Update counters
+    if (sentCount) {
+      sentCount.value = currentSentPosts.length
+    }
+    if (queueCount && queueCount.value > 0) {
+      queueCount.value--
+    }
+    
+    // Remove from schedule
+    for (const day of schedule.value) {
+      for (const slot of day.timeSlots) {
+        if (slot.post && slot.post.id === post.id) {
+          slot.post = null
+          break
+        }
       }
     }
+    
+    // Add toast notification
+    toast.add({
+      title: 'Post Published!',
+      description: 'Your post has been published immediately.',
+      color: 'green'
+    })
+    
+  } catch (error) {
+    toast.add({
+      title: 'Error',
+      description: 'Failed to publish post. Please try again.',
+      color: 'red'
+    })
   }
-  
-  // Add toast notification
-  const toast = useToast()
-  toast.add({
-    title: 'Post Published!',
-    description: 'Your post has been published immediately.',
-    color: 'green'
-  })
 }
 
 const handleEditPost = (post) => {
@@ -307,6 +373,107 @@ const handleEditPost = (post) => {
 const handleShowPostOptions = (post) => {
   // Handle post options menu
   // Add functionality here for post options menu
+}
+
+// Move scheduled post to drafts
+const moveToDraft = (post) => {
+  try {
+    // Use already injected dependencies (not inject() again)
+    const { saveDrafts, loadDrafts } = useLocalStorage()
+    
+    // Load current drafts
+    const currentDrafts = loadDrafts()
+    
+    // Create draft object
+    const draftPost = {
+      ...post,
+      id: `draft-${Date.now()}`,
+      createdAt: new Date(),
+      status: 'draft'
+    }
+    
+    // Add to drafts
+    currentDrafts.push(draftPost)
+    saveDrafts(currentDrafts)
+    
+    // Remove from schedule
+    for (const day of schedule.value) {
+      for (const slot of day.timeSlots) {
+        if (slot.post && slot.post.id === post.id) {
+          slot.post = null
+          break
+        }
+      }
+    }
+    
+    // Update counters using already injected refs
+    if (draftsCount) {
+      draftsCount.value = currentDrafts.length
+    }
+    if (queueCount && queueCount.value > 0) {
+      queueCount.value--
+    }
+    
+    // Show success message
+    toast.add({
+      title: 'Moved to Drafts!',
+      description: 'Post has been moved to drafts successfully.',
+      color: 'blue'
+    })
+    
+  } catch (error) {
+    toast.add({
+      title: 'Error',
+      description: 'Failed to move post to drafts. Please try again.',
+      color: 'red'
+    })
+  }
+}
+
+// Delete scheduled post
+const deletePost = (post) => {
+  try {
+    // Remove from schedule
+    for (const day of schedule.value) {
+      for (const slot of day.timeSlots) {
+        if (slot.post && slot.post.id === post.id) {
+          slot.post = null
+          break
+        }
+      }
+    }
+    
+    // Update queue count using already injected ref
+    if (queueCount && queueCount.value > 0) {
+      queueCount.value--
+    }
+    
+    // Show success message
+    toast.add({
+      title: 'Post Deleted!',
+      description: 'Post has been deleted successfully.',
+      color: 'yellow'
+    })
+    
+  } catch (error) {
+    toast.add({
+      title: 'Error',
+      description: 'Failed to delete post. Please try again.',
+      color: 'red'
+    })
+  }
+}
+
+// Duplicate scheduled post
+const handleDuplicatePost = (originalPost) => {
+  // Instead of directly creating a duplicate, emit createPost with the original post data
+  emit('createPost', {
+    content: originalPost.content,
+    files: originalPost.files,
+    tags: originalPost.tags,
+    isDuplicate: true,
+    originalPost: originalPost
+  })
 }
 
 // Listen for post creation events
@@ -335,13 +502,15 @@ const handlePostScheduled = (postData) => {
           foundOriginatingSlot = true
           
           // Update queue count
-          const queueCount = inject('queueCount')
           if (queueCount) {
             queueCount.value++
           }
           
           // Clear originating slot tracking
           originatingSlot.value = null
+          
+          // Force immediate save to localStorage
+          saveScheduledPosts(schedule.value)
           return
         }
       }
@@ -358,40 +527,69 @@ const handlePostScheduled = (postData) => {
   let targetDay = schedule.value.find(d => d.date === postData.date)
   
   if (targetDay) {
-    // Day exists - check if time slot exists
-    let existingSlot = targetDay.timeSlots.find(slot => slot.time === postData.time)
+    // Check if there's an existing empty slot at this time
+    let existingSlot = targetDay.timeSlots.find(slot => slot.time === postData.time && !slot.post)
     
     if (existingSlot) {
-      // Time slot exists - just update the post (replace existing)
-      const wasEmpty = !existingSlot.post
+      // Use existing empty slot
       existingSlot.post = newPost
+    } else {
+      // Check if there's a slot with this time but has a post
+      let occupiedSlot = targetDay.timeSlots.find(slot => slot.time === postData.time && slot.post)
       
-      // Update queue count only if slot was empty before
-      if (wasEmpty) {
-        const queueCount = inject('queueCount')
-        if (queueCount) {
-          queueCount.value++
+      if (!occupiedSlot) {
+        // No slot at this time exists at all, create new one
+        const newSlot = {
+          id: slotIdCounter.value++,
+          time: postData.time,
+          post: newPost
+        }
+        targetDay.timeSlots.push(newSlot)
+      } else {
+        // Find next available time slot
+        let time = new Date(`${postData.date} ${postData.time}`)
+        let found = false
+        
+        while (!found) {
+          time.setMinutes(time.getMinutes() + 30)
+          const newTimeStr = time.toLocaleTimeString('en-US', { 
+            hour: 'numeric', 
+            minute: '2-digit', 
+            hour12: true 
+          })
+          
+          // Check if this new time is available
+          if (!targetDay.timeSlots.some(slot => slot.time === newTimeStr)) {
+            const newSlot = {
+              id: slotIdCounter.value++,
+              time: newTimeStr,
+              post: newPost
+            }
+            targetDay.timeSlots.push(newSlot)
+            found = true
+          }
         }
       }
-    } else {
-      // Time slot doesn't exist - create new one
-      targetDay.timeSlots.push({
-        id: slotIdCounter.value++,
-        time: postData.time,
-        post: newPost
-      })
-      
-      // Update queue count
-      const queueCount = inject('queueCount')
-      if (queueCount) {
-        queueCount.value++
-      }
+    }
+    
+    // Sort time slots by time
+    targetDay.timeSlots.sort((a, b) => {
+      const timeA = new Date(`2000/01/01 ${a.time}`).getTime()
+      const timeB = new Date(`2000/01/01 ${b.time}`).getTime()
+      return timeA - timeB
+    })
+    
+    // Update queue count
+    if (queueCount) {
+      queueCount.value++
     }
   } else {
     // Day doesn't exist - create new day with the time slot
+    const formattedTitle = formatDayTitle(postData.date)
+    
     targetDay = {
       id: `day-${Date.now()}`,
-      title: formatDayTitle(postData.date),
+      title: formattedTitle,
       date: postData.date,
       timeSlots: [{
         id: slotIdCounter.value++,
@@ -399,14 +597,20 @@ const handlePostScheduled = (postData) => {
         post: newPost
       }]
     }
+    
     schedule.value.push(targetDay)
     
+    // Sort schedule by date to maintain proper order
+    schedule.value.sort((a, b) => new Date(a.date) - new Date(b.date))
+    
     // Update queue count
-    const queueCount = inject('queueCount')
     if (queueCount) {
       queueCount.value++
     }
   }
+  
+  // Force immediate save to localStorage after any changes
+  saveScheduledPosts(schedule.value)
 }
 
 // Handle post updates
@@ -433,8 +637,9 @@ const handlePostUpdated = (updatedPost) => {
     ...originalSlot.post,
     content: updatedPost.content,
     files: updatedPost.files,
-    date: updatedPost.date,  // Make sure to update the date
-    time: updatedPost.time,  // Make sure to update the time
+    tags: updatedPost.tags,
+    date: updatedPost.date,
+    time: updatedPost.time,
     updatedAt: new Date()
   }
   
@@ -479,6 +684,9 @@ const handlePostUpdated = (updatedPost) => {
     // Same date/time - just update the content in place
     originalSlot.post = updatedPostObj
   }
+  
+  // Force immediate save to localStorage
+  saveScheduledPosts(schedule.value)
 }
 
 // Helper function to format day title
@@ -523,6 +731,10 @@ const clearOriginatingSlot = () => {
 defineExpose({
   handlePostScheduled,
   handlePostUpdated,
-  clearOriginatingSlot
+  clearOriginatingSlot,
+  moveToDraft,
+  deletePost,
+  handleDuplicatePost,
+  loadAllPosts
 })
 </script> 

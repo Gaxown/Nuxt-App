@@ -150,6 +150,18 @@
               @dragleave="handleDragLeave"
               @drop="handleDrop($event, day.date, hour.time)"
             >
+              <!-- Add Post Button for each time slot -->
+              <div class="flex justify-end mb-1" v-if="!isInThePast(day.date, hour.time)">
+                <UButton
+                  size="xs"
+                  color="primary"
+                  variant="ghost"
+                  icon="i-heroicons-plus"
+                  @click="createPostForDate(day.date, hour.time)"
+                  class="opacity-50 hover:opacity-100 cursor-pointer"
+                />
+              </div>
+              
               <!-- Posts for this time slot -->
               <div class="space-y-1">
                 <div 
@@ -256,29 +268,104 @@
                 {{ day.dayNumber }}
               </span>
               
-              <!-- Add Post Button -->
+              <!-- Monthly View Add Post Button -->
               <UButton
-                v-if="!day.isOtherMonth"
+                v-if="!day.isOtherMonth && !isInThePast(day.date, '00:00')"
                 size="xs"
                 color="primary"
                 variant="ghost"
                 icon="i-heroicons-plus"
-                @click="createPostForDate(day.date)"
-                class="opacity-50 hover:opacity-100"
+                @click="createPostForMonthView(day.date)"
+                class="opacity-50 hover:opacity-100 cursor-pointer"
               />
             </div>
             
-            <!-- Posts for this day -->
+            <!-- Monthly view posts -->
             <div class="space-y-1">
               <div 
                 v-for="post in getPostsForDay(day.date).slice(0, 3)" 
                 :key="post.id"
-                class="text-xs p-1 rounded border-l-2 cursor-pointer hover:shadow-sm transition-all bg-white"
-                :class="getPostStatusClass(post.status)"
+                class="text-xs p-1 rounded-lg border-l-4 cursor-move hover:shadow-md transition-all duration-200 bg-white group"
+                :class="[
+                  getPostStatusClass(post.status),
+                  { 'opacity-50': isDragging && draggedPost?.id === post.id }
+                ]"
+                draggable="true"
+                @dragstart="handleDragStart($event, post)"
+                @dragend="handleDragEnd"
                 @click="openPostDetails(post)"
               >
-                <div class="font-medium">{{ post.time }}</div>
-                <div class="text-gray-600 truncate">{{ post.content }}</div>
+                <div class="flex items-start space-x-1">
+                  <!-- Drag handle -->
+                  <div class="flex-shrink-0 mt-0.5">
+                    <UIcon name="i-heroicons-bars-3" class="w-2 h-2 text-gray-400" />
+                  </div>
+                  
+                  <!-- Content -->
+                  <div class="flex-1 min-w-0">
+                    <!-- Text content (hidden if images exist) -->
+                    <div 
+                      v-if="!post.files || post.files.length === 0" 
+                      class="flex-1"
+                    >
+                      <div class="font-semibold text-xs mb-0.5 flex items-center justify-between">
+                        <span>{{ post.time }}</span>
+                        <UButton
+                          v-if="post.status !== 'sent'"
+                          size="xs"
+                          color="gray"
+                          variant="ghost"
+                          icon="i-heroicons-pencil"
+                          class="opacity-0 group-hover:opacity-100 transition-opacity -my-1"
+                          @click.stop="editPost(post)"
+                        />
+                      </div>
+                      <div class="text-gray-700 text-xs leading-tight line-clamp-2">{{ post.content }}</div>
+                    </div>
+                    
+                    <!-- If images exist, show only time and small image -->
+                    <div 
+                      v-else 
+                      class="flex items-center space-x-1 w-full"
+                    >
+                      <div class="flex-1 min-w-0">
+                        <div class="font-semibold text-xs text-gray-900 flex items-center justify-between">
+                          <span>{{ post.time }}</span>
+                          <UButton
+                            v-if="post.status !== 'sent'"
+                            size="xs"
+                            color="gray"
+                            variant="ghost"
+                            icon="i-heroicons-pencil"
+                            class="opacity-0 group-hover:opacity-100 transition-opacity -my-1"
+                            @click.stop="editPost(post)"
+                          />
+                        </div>
+                        <div class="text-gray-500 text-xs truncate">{{ post.files.length }} image{{ post.files.length > 1 ? 's' : '' }}</div>
+                      </div>
+                      <!-- Small image thumbnail -->
+                      <div class="flex-shrink-0">
+                        <div v-if="post.files.length === 1">
+                          <img 
+                            :src="post.files[0].preview" 
+                            :alt="post.files[0].name"
+                            class="w-8 h-8 object-cover rounded border"
+                          />
+                        </div>
+                        <div v-else class="relative">
+                          <img 
+                            :src="post.files[0].preview" 
+                            :alt="post.files[0].name"
+                            class="w-8 h-8 object-cover rounded border"
+                          />
+                          <div class="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full w-3 h-3 flex items-center justify-center">
+                            {{ post.files.length }}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
               
               <!-- More posts indicator -->
@@ -489,7 +576,12 @@ const monthDays = computed(() => {
   for (let i = 0; i < 42; i++) {
     const date = new Date(startDate)
     date.setDate(date.getDate() + i)
-    const dateStr = date.toISOString().split('T')[0]
+    
+    // Format date without timezone conversion
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const dateStr = `${year}-${month}-${day}`
     
     days.push({
       date: dateStr,
@@ -667,11 +759,19 @@ const createPost = () => {
   }
 }
 
-const createPostForDate = (date) => {
+const createPostForDate = (date, time = '9:00 AM') => {
   if (createPostFunction) {
-    // Pass the date and default time to the create function
     createPostFunction({
       date: date,
+      time: time.includes(':') ? formatTimeFromSlot(time) : time
+    })
+  }
+}
+
+const createPostForMonthView = (date) => {
+  if (createPostFunction) {
+    createPostFunction({
+      date: date,  // Use the date directly without any conversion
       time: '9:00 AM'
     })
   }
@@ -1040,8 +1140,35 @@ watch([refreshDrafts, refreshQueue, refreshSent], () => {
   pointer-events: none;
 }
 
+/* Override cursor styles */
+.drop-zone:not(.bg-gray-100) {
+  cursor: default;
+}
+
+.drop-zone:not(.bg-gray-100) button {
+  cursor: pointer !important;
+}
+
+.drop-zone:not(.bg-gray-100) .UButton {
+  cursor: pointer !important;
+}
+
+/* Disabled cursor only for past time slots content */
+.drop-zone.bg-gray-100 > *:not(.flex) {
+  cursor: not-allowed;
+}
+
 /* Disabled cursor for past time slots */
 .opacity-50 {
   cursor: not-allowed;
+}
+
+/* Monthly view cursor styles */
+.grid-cols-7 .border-r button {
+  cursor: pointer !important;
+}
+
+.grid-cols-7 .border-r:not(.bg-gray-50) .UButton {
+  cursor: pointer !important;
 }
 </style>
